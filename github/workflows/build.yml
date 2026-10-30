@@ -25,14 +25,28 @@ jobs:
           flutter-version: '3.19.6'
           channel: 'stable'
 
+      - name: Create Flutter project structure
+        run: |
+          flutter create temp_app
+          cp -r temp_app/android .
+          rm -rf temp_app
+
+      - name: Download Icon and Setup
+        run: |
+          curl -L -o icon.png "https://s.fotora.ru/4f904d818594a4f1.jpeg"
+          sed -i 's/android:label="[^"]*"/android:label="StimmeVpn"/g' android/app/src/main/AndroidManifest.xml
+
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Generate Icons
+        run: flutter pub run flutter_launcher_icons
+
       - name: Build APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: vpn-apk
-          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          name: StimmeVpn-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
