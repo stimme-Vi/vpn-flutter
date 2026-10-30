@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const VpnApp());
@@ -10,18 +11,61 @@ class VpnApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'VPN Сервис',
+      title: 'Stimme VPN',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF08080A),
         primaryColor: const Color(0xFF8B5CF6),
       ),
-      home: const AuthScreen(),
+      home: const SplashScreen(),
     );
   }
 }
 
+// --- ЭКРАН ЗАГРУЗКИ ---
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkLogin();
+  }
+
+  void _checkLogin() async {
+    await Future.delayed(const Duration(seconds: 1));
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? savedPlan = prefs.getString('user_plan');
+    String? savedCode = prefs.getString('user_code');
+
+    if (!mounted) return;
+
+    if (savedPlan != null && savedCode != null) {
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (c) => MainScreen(plan: savedPlan, code: savedCode)
+      ));
+    } else {
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (c) => const AuthScreen()
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator(color: Color(0xFF8B5CF6))),
+    );
+  }
+}
+
+// --- ЭКРАН ВВОДА КОДА ---
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -33,18 +77,32 @@ class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _codeController = TextEditingController();
   String _errorMessage = '';
 
-  void _login() {
+  void _login() async {
     String code = _codeController.text.trim().toUpperCase();
-    
-    if (code == 'BASIC') {
-      Navigator.push(context, MaterialPageRoute(builder: (c) => const MainScreen(plan: 'Обычный', servers: 50)));
-    } else if (code == 'PREMIUM') {
-      Navigator.push(context, MaterialPageRoute(builder: (c) => const MainScreen(plan: 'Премиум', servers: 65)));
-    } else if (code == 'BEST') {
-      Navigator.push(context, MaterialPageRoute(builder: (c) => const MainScreen(plan: 'Лучший', servers: 80)));
+    String plan = '';
+
+    if (code == 'STIMMEVLONE') {
+      plan = 'СОЗДАТЕЛЬ';
+    } else if (code.startsWith('BASIC-')) {
+      plan = 'Обычный';
+    } else if (code.startsWith('PREM-')) {
+      plan = 'Премиум';
+    } else if (code.startsWith('BEST-')) {
+      plan = 'Лучший';
+    }
+
+    if (plan.isNotEmpty) {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_plan', plan);
+      await prefs.setString('user_code', code);
+
+      if (!mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (c) => MainScreen(plan: plan, code: code)
+      ));
     } else {
       setState(() {
-        _errorMessage = 'Неверный код. Проверьте сообщение от поддержки.';
+        _errorMessage = 'Неверный код. Проверьте сообщение в боте.';
       });
     }
   }
@@ -60,22 +118,14 @@ class _AuthScreenState extends State<AuthScreen> {
           children: [
             const Icon(Icons.security, size: 80, color: Color(0xFF8B5CF6)),
             const SizedBox(height: 30),
-            const Text(
-              'ВХОД В VPN',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 2),
-            ),
+            const Text('STIMMEVPN', textAlign: TextAlign.center, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 2)),
             const SizedBox(height: 10),
-            const Text(
-              'Введите код доступа, полученный после оплаты',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
+            const Text('Введите код из бота', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 40),
             TextField(
               controller: _codeController,
               decoration: InputDecoration(
-                hintText: 'Например: PREMIUM',
+                hintText: 'Например: PREM-123',
                 filled: true,
                 fillColor: const Color(0xFF121218),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
@@ -104,11 +154,12 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
+// --- ГЛАВНЫЙ ЭКРАН ---
 class MainScreen extends StatefulWidget {
   final String plan;
-  final int servers;
+  final String code;
 
-  const MainScreen({super.key, required this.plan, required this.servers});
+  const MainScreen({super.key, required this.plan, required this.code});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -117,19 +168,38 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   bool isConnected = false;
 
+  // Функция для определения лимита устройств
+  String getDeviceLimit() {
+    if (widget.plan == 'Обычный') return '2 устройства';
+    if (widget.plan == 'Премиум') return 'до 5 устройств';
+    if (widget.plan == 'Лучший') return 'до 10 устройств';
+    return 'Неограниченно';
+  }
+
+  void _logout() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    if (!mounted) return;
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (c) => const AuthScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('БЕЗОПАСНЫЙ VPN'),
+        title: const Text('STIMMEVPN', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
+        actions: [
+          IconButton(icon: const Icon(Icons.exit_to_app, color: Colors.grey), onPressed: _logout),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
+            // Карточка подписки
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -139,21 +209,45 @@ class _MainScreenState extends State<MainScreen> {
               ),
               child: Column(
                 children: [
-                  const Text('ВАШ ТАРИФ', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const Text('ВАША ПОДПИСКА', style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 5),
                   Text(widget.plan, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF8B5CF6))),
                   const Divider(color: Colors.black26, height: 30),
+                  
+                  // Строка со статусом
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Доступно серверов:', style: TextStyle(color: Colors.grey)),
-                      Text('${widget.servers}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                      const Text('Статус:', style: TextStyle(color: Colors.grey)),
+                      const Text('Активна ✅', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  
+                  // Строка с лимитом устройств (НОВОЕ)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Лимит устройств:', style: TextStyle(color: Colors.grey)),
+                      Text(getDeviceLimit(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  
+                  // Строка с кодом
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Ваш код:', style: TextStyle(color: Colors.grey)),
+                      Text(widget.code, style: const TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ],
               ),
             ),
+            
             const Spacer(),
+            // Круглая кнопка Подключения
             GestureDetector(
               onTap: () {
                 setState(() { isConnected = !isConnected; });
